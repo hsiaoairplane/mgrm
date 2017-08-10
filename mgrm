@@ -1,0 +1,149 @@
+#!/usr/bin/python
+#
+#  Filename: mgrm
+#
+#  Author: hsiaoairplane <hsiaoairplane@gmail.com>
+#
+#  Description: Multiple Git Repository Management Tool.
+#				It's from the idea npm package.json and google repo.
+#
+#				Using this tool needs to write package.json file, it recursively clones all the repositories described in dependencies field.
+#				Also it supports sematic version checks based on http://semver.org/
+#				For more details, please reference to https://docs.npmjs.com/files/package.json#dependencies
+#
+#  Last modified: Aug 10, 2017
+#
+
+import os
+import json
+import ast
+import subprocess
+import sys
+
+from traceback import print_exc
+
+GIT = 'git'
+CURL = 'curl'
+MIN_PYTHON_VERSION = (2, 6)     # minimum supported python version
+
+folders = [] # record folder to walk
+
+# Python version check
+ver = sys.version_info
+if (ver[0], ver[1]) < MIN_PYTHON_VERSION:
+  _print('error: Python version %s unsupported.\n'
+         'Please use Python 2.6 - 2.7 instead.'
+         % sys.version.split(' ')[0], file=sys.stderr)
+  sys.exit(1)
+
+def _print(*objects, **kwargs):
+  sep = kwargs.get('sep', ' ')
+  end = kwargs.get('end', '\n')
+  out = kwargs.get('file', sys.stdout)
+  out.write(sep.join(objects) + end)
+
+class clone_failure(Exception):
+  """Indicate the remote clone of repo itself failed.
+  """
+
+class pull_failure(Exception):
+  """Indicate the remote pull of repo itself failed.
+  """
+
+def check_git_version():
+  cmd = [GIT, '--version']
+  try:
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+  except OSError as e:
+    _print(file=sys.stderr)
+    _print("fatal: '%s' is not available" % GIT, file=sys.stderr)
+    _print('fatal: %s' % e, file=sys.stderr)
+    _print(file=sys.stderr)
+    _print('Please make sure %s is installed and in your path.' % GIT,
+           file=sys.stderr)
+    raise clone_failure()
+
+def check_curl_version():
+  cmd = [CURL, '--version']
+  try:
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+  except OSError as e:
+    _print(file=sys.stderr)
+    _print("fatal: '%s' is not available" % CURL, file=sys.stderr)
+    _print('fatal: %s' % e, file=sys.stderr)
+    _print(file=sys.stderr)
+    _print('Please make sure %s is installed and in your path.' % CURL,
+           file=sys.stderr)
+    raise clone_failure()
+
+def clone_checkout_or_pull(path):
+	try:
+		# load package.json
+		package_json_path = path + '/package.json'
+		package = json.load(open(package_json_path))
+
+		# parse dependencies field
+		repos = ast.literal_eval(json.dumps(package['dependencies']))
+
+		# clone and checkout
+		for repo in repos:
+			url = repo
+			branch = repos[repo]
+			localdir = os.path.basename(repo).replace('.git', '')
+			abspath = os.path.abspath(os.path.join(localdir))
+
+			# records folder to walk
+			folders.append(abspath)
+
+			if not os.path.exists(abspath):
+			        # git clone and git checkout
+                                proc = subprocess.call([GIT, 'clone', url])
+
+                                # checkout
+                                cmd = [GIT, 'checkout', branch]
+                                proc = subprocess.Popen(cmd, cwd = abspath)
+                                if proc.wait() != 0:
+                                    _print('fatal: could not checkout %s' % abspath, file=sys.stderr)
+                                    raise clone_failure()
+			else:
+                            # git branch -u upstream tracking
+                            remote_branch = 'origin/' + branch
+			    cmd = [GIT, 'branch', '-u', remote_branch, '--quiet']
+                            proc = subprocess.Popen(cmd, cwd = abspath)
+                            
+                            # git pull --rebase
+			    cmd = [GIT, 'pull', '--rebase']
+	        	    proc = subprocess.Popen(cmd, cwd = abspath)
+			    if proc.wait() != 0:
+			        _print('fatal: could not pull %s' % abspath, file=sys.stderr)
+			        raise pull_failure()
+
+	except IOError:
+		print "Error! package.json not exist at %s" % path
+
+	except Exception, e:
+	    print 'type is:', e.__class__.__name__
+	    print_exc()
+
+if __name__ == '__main__':
+	if ver[0] == 3:
+		_print('warning: Python 3 support is currently experimental. YMMV.\n'
+        	'Please use Python 2.6 - 2.7 instead.',
+			file=sys.stderr)
+
+	# check git version
+	check_git_version()
+
+	# check curl installed
+	check_curl_version()
+
+	# record current path
+	folders.append(os.getcwd())
+
+	while folders:
+		# pop out path to walk
+		current_path = folders.pop(0) # pop out path to walk
+
+		# git clone and git checkout or git pull according to package.json dependencies field
+		clone_checkout_or_pull(current_path)
+
