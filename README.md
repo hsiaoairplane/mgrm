@@ -29,7 +29,7 @@ At dependencies field, write the gitlab URL and the specify branch, tag, commit-
         },
         "dependencies": {
             "git@github.com:hsiaoairplane/python.git", "1.0.0",
-	    "git@github.com:hsiaoairplane/golang.git",  "master"
+            "git@github.com:hsiaoairplane/golang.git",  "master"
         }
    }
    ```
